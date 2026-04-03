@@ -1,14 +1,16 @@
 import asyncio
 import os
 from datetime import datetime, timedelta
-from telethon import TelegramClient, events
-from config import API_ID, API_HASH, SOURCES, TARGET
+from telethon import TelegramClient
+from config import API_ID, API_HASH, SOURCES, TARGET, CHECK_INTERVAL
 
-# Path for Docker volume
 SESSION_NAME = "data/session"
 LOG_DIR = "data/logs"
 
 client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+
+# store last processed message id per channel
+LAST_MESSAGES = {}
 
 
 def ensure_log_dir():
@@ -34,19 +36,19 @@ def get_log_file():
     return os.path.join(LOG_DIR, f"{today}.log")
 
 
-def get_message_types(event):
+def get_message_types(message):
     types = []
 
-    if event.message.text:
+    if message.text:
         types.append("TEXT")
 
-    if event.message.photo:
+    if message.photo:
         types.append("PICTURE")
 
-    if event.message.video:
+    if message.video:
         types.append("VIDEO")
 
-    if event.message.document:
+    if message.document:
         types.append("FILE")
 
     if not types:
@@ -55,12 +57,11 @@ def get_message_types(event):
     return "+".join(types)
 
 
-async def log_event(event):
-    chat = await event.get_chat()
+async def log_message(message, chat):
     chat_name = getattr(chat, "username", None) or getattr(chat, "title", "unknown")
 
-    msg_types = get_message_types(event)
-    text = event.message.text or ""
+    msg_types = get_message_types(message)
+    text = message.text or ""
 
     log_line = f"[{datetime.now()}] [{chat_name}] [{msg_types}] {text}\n"
 
@@ -68,14 +69,30 @@ async def log_event(event):
         f.write(log_line)
 
 
-@client.on(events.NewMessage(chats=SOURCES))
-async def handler(event):
-    try:
-        await log_event(event)
-        await client.forward_messages(TARGET, event.message)
-        print("✅ sended")
-    except Exception as e:
-        print("❌ Error:", e)
+async def process_channel(entity):
+    messages = await client.get_messages(entity, limit=5)
+
+    if not messages:
+        return
+
+    messages = list(reversed(messages))  # oldest → newest
+
+    last_id = LAST_MESSAGES.get(entity.id)
+
+    for msg in messages:
+        if last_id and msg.id <= last_id:
+            continue
+
+        print(f"=== NEW MESSAGE from {entity.id} ===")
+
+        try:
+            await log_message(msg, entity)
+            await client.forward_messages(TARGET, msg)
+            print("✅ Sent")
+        except Exception as e:
+            print("❌ Error:", e)
+
+        LAST_MESSAGES[entity.id] = msg.id
 
 
 async def main():
@@ -86,9 +103,21 @@ async def main():
     print(f"📂 Session: {SESSION_NAME}")
 
     await client.start()
-    print("🚀 Bot started and listening...")
 
-    await client.run_until_disconnected()
+    # resolve channel entities
+    entities = []
+    for source in SOURCES:
+        entity = await client.get_entity(source)
+        print(f"✅ Source connected: {source} -> {entity.id}")
+        entities.append(entity)
+
+    print("🚀 Polling started...")
+
+    while True:
+        for entity in entities:
+            await process_channel(entity)
+
+        await asyncio.sleep(CHECK_INTERVAL)
 
 
 if __name__ == "__main__":
