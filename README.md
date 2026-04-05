@@ -178,3 +178,101 @@ docker run -d -v $(pwd)/data:/app/data --name userbot --restart=always userbot
 * Lower `CHECK_INTERVAL` for faster updates
 * Logs are automatically cleaned after 7 days
 ---
+
+
+---
+
+## 🤖 Commands (via Telegram)
+
+You can control the bot directly from your `TARGET` chat (e.g. your main account).
+
+### 📜 Available commands:
+
+```
+commands
+give-log DD-MM-YYYY
+list-logs
+```
+
+---
+
+### 📂 List logs
+
+```
+list-logs
+```
+
+Shows last available log files from `data/logs/`.
+
+---
+
+### 📄 Get specific log file
+
+```
+give-log 05-04-2026
+```
+
+Bot will send the requested log file.
+
+---
+
+### ℹ️ Show commands
+
+```
+commands
+```
+
+Displays all available commands.
+
+---
+
+## 🧾 Logging
+
+Logs are stored per day in UTC:
+
+```
+data/logs/DD-MM-YYYY.log
+```
+
+Each message contains:
+
+* Source channel
+* Message type (TEXT / PICTURE / VIDEO / FILE / UNKNOWN)
+
+Example:
+
+```
+[source:channel_name] [TEXT]
+```
+
+---
+
+## 🔁 Deduplication
+
+The bot prevents duplicate messages using two strategies:
+
+1. **Forward metadata (primary)**  
+   Detects original message via Telegram forward info  
+   (prevents duplicates across channels)
+
+2. **Content hash (fallback)**  
+   Prevents duplicates if message is copied manually
+
+---
+
+## ⚡ Reliability
+
+* Uses `min_id` instead of `limit`
+* Ensures no message loss between polling cycles
+* Works correctly even if multiple messages arrive at once
+
+---
+
+## 🧠 Notes
+
+* No admin rights required — works as userbot
+* Commands work directly in Telegram (no SSH needed)
+* Cache is stored in `data/message_cache.json`
+* Old cache entries are automatically cleaned using TTL
+
+---
