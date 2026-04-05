@@ -43,6 +43,14 @@ def write_log(level, message):
         f.write(log_line)
 
 
+def log_separator():
+    write_log("INFO", "-" * 70)
+
+
+def get_channel_id(entity):
+    return int(f"-100{entity.id}")
+
+
 def get_message_types(message):
     types = []
 
@@ -86,7 +94,7 @@ async def process_channel(entity):
         if last_id and msg.id <= last_id:
             continue
 
-        write_log("INFO", f"New message detected from {entity.id}")
+        write_log("INFO", f"New message detected from entity_id={entity.id}")
 
         try:
             await log_message(msg, entity)
@@ -102,8 +110,15 @@ async def main():
     ensure_log_dir()
     cleanup_old_logs()
 
+    # 🔥 START BANNER
+    write_log("INFO", "=" * 70)
+    write_log("INFO", "BOT STARTED")
+    write_log("INFO", f"Time: {datetime.utcnow().isoformat()}Z")
+    write_log("INFO", f"Sources count: {len(SOURCES)}")
+    write_log("INFO", f"TARGET: {TARGET}")
     write_log("INFO", f"Logs dir: {LOG_DIR}")
     write_log("INFO", f"Session: {SESSION_NAME}")
+    write_log("INFO", "=" * 70)
 
     await client.start()
 
@@ -112,14 +127,20 @@ async def main():
     for source in SOURCES:
         try:
             entity = await client.get_entity(source)
-            write_log("INFO", f"Source connected: {source} -> {entity.id}")
+
+            channel_id = get_channel_id(entity)
+
+            write_log(
+                "INFO",
+                f"{source} -> [entity_id={entity.id}] [channel_id={channel_id}] ({entity.title})"
+            )
 
             last_msg = await client.get_messages(entity, limit=1)
 
             if last_msg:
                 msg = last_msg[0]
 
-                write_log("INFO", f"Initial message from {entity.id}")
+                write_log("INFO", f"Initial message from entity_id={entity.id}")
 
                 try:
                     await log_message(msg, entity)
@@ -131,6 +152,9 @@ async def main():
                 LAST_MESSAGES[entity.id] = msg.id
 
             entities.append(entity)
+
+            # 🔥 separator between channels
+            log_separator()
 
         except Exception as e:
             write_log("ERROR", f"Failed to connect source {source}: {e}")
