@@ -132,7 +132,7 @@ async def main():
 
             write_log(
                 "INFO",
-                f"{source} -> [entity_id={entity.id}] [channel_id={channel_id}] ({entity.title})"
+                f"[source:{source}] -> [entity_id:{entity.id}] [channel_id:{channel_id}] [name:{entity.title}]"
             )
 
             last_msg = await client.get_messages(entity, limit=1)
