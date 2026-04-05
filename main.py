@@ -57,6 +57,38 @@ def log_separator():
     write_log("INFO", "-" * 70)
 
 
+def get_channel_id(entity):
+    return int(f"-100{entity.id}")
+
+
+def get_message_types(message):
+    types = []
+
+    if message.text:
+        types.append("TEXT")
+
+    if message.photo:
+        types.append("PICTURE")
+
+    if message.video:
+        types.append("VIDEO")
+
+    if message.document:
+        types.append("FILE")
+
+    if not types:
+        types.append("UNKNOWN")
+
+    return "+".join(types)
+
+
+async def log_message(message, chat):
+    chat_name = getattr(chat, "username", None) or getattr(chat, "title", "unknown")
+    msg_types = get_message_types(message)
+
+    write_log("INFO", f"[{chat_name}] [{msg_types}]")
+
+
 # ================= CACHE =================
 
 def load_cache():
@@ -124,6 +156,7 @@ async def process_channel(entity):
         write_log("INFO", f"New message detected from entity_id={entity.id}")
 
         try:
+            await log_message(msg, entity)
             await client.forward_messages(TARGET_ID, msg)
             write_log("INFO", "Message forwarded successfully")
 
@@ -149,7 +182,6 @@ async def handle_commands(event):
 
         text = event.raw_text.strip().lower()
 
-        # -------- give-log --------
         if text.startswith("give-log"):
             parts = text.split()
 
@@ -170,7 +202,6 @@ async def handle_commands(event):
             else:
                 await event.reply(f"❌ Log not found: {date_str}")
 
-        # -------- list-logs --------
         elif text == "list-logs":
             if not os.path.exists(LOG_DIR):
                 await event.reply("No logs directory found")
@@ -183,27 +214,10 @@ async def handle_commands(event):
                 return
 
             logs = "\n".join(files[-20:])
-
             await event.reply(f"📂 Available logs:\n\n{logs}")
 
     except Exception as e:
         write_log("ERROR", f"Command error: {e}")
-
-
-# ================= POLLING =================
-
-async def polling_loop(entities):
-    while True:
-        for entity in entities:
-            try:
-                await process_channel(entity)
-            except Exception as e:
-                write_log("ERROR", f"Error processing channel {entity.id}: {e}")
-
-        cleanup_cache()
-        save_cache()
-
-        await asyncio.sleep(CHECK_INTERVAL)
 
 
 # ================= MAIN =================
@@ -225,7 +239,6 @@ async def main():
     await client.start()
 
     global TARGET_ID
-
     target_entity = await client.get_entity(TARGET)
     TARGET_ID = target_entity.id
 
@@ -237,9 +250,11 @@ async def main():
         try:
             entity = await client.get_entity(source)
 
+            channel_id = get_channel_id(entity)
+
             write_log(
                 "INFO",
-                f"[source:{source}] -> [entity_id:{entity.id}] [name:{entity.title}]"
+                f"[source:{source}] -> [entity_id:{entity.id}] [channel_id:{channel_id}] [name:{entity.title}]"
             )
 
             last_msg = await client.get_messages(entity, limit=1)
@@ -251,6 +266,7 @@ async def main():
 
                 if key not in MESSAGE_CACHE:
                     try:
+                        await log_message(msg, entity)
                         await client.forward_messages(TARGET_ID, msg)
                         write_log("INFO", "Initial message sent")
 
@@ -262,7 +278,6 @@ async def main():
                 LAST_MESSAGES[entity.id] = msg.id
 
             entities.append(entity)
-
             log_separator()
 
         except Exception as e:
@@ -270,7 +285,17 @@ async def main():
 
     write_log("INFO", "Polling started")
 
-    await polling_loop(entities)
+    while True:
+        for entity in entities:
+            try:
+                await process_channel(entity)
+            except Exception as e:
+                write_log("ERROR", f"Error processing channel {entity.id}: {e}")
+
+        cleanup_cache()
+        save_cache()
+
+        await asyncio.sleep(CHECK_INTERVAL)
 
 
 if __name__ == "__main__":
