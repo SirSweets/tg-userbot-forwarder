@@ -174,6 +174,15 @@ async def process_channel(entity):
 
 # ================= COMMANDS =================
 
+def get_commands_text():
+    return (
+        "📜 Available commands:\n\n"
+        "commands\n"
+        "give-log DD-MM-YYYY\n"
+        "list-logs"
+    )
+
+
 @client.on(events.NewMessage)
 async def handle_commands(event):
     try:
@@ -182,7 +191,12 @@ async def handle_commands(event):
 
         text = event.raw_text.strip().lower()
 
-        if text.startswith("give-log"):
+        # -------- commands --------
+        if text == "commands":
+            await event.reply(get_commands_text())
+
+        # -------- give-log --------
+        elif text.startswith("give-log"):
             parts = text.split()
 
             if len(parts) < 2:
@@ -202,6 +216,7 @@ async def handle_commands(event):
             else:
                 await event.reply(f"❌ Log not found: {date_str}")
 
+        # -------- list-logs --------
         elif text == "list-logs":
             if not os.path.exists(LOG_DIR):
                 await event.reply("No logs directory found")
@@ -218,6 +233,22 @@ async def handle_commands(event):
 
     except Exception as e:
         write_log("ERROR", f"Command error: {e}")
+
+
+# ================= POLLING =================
+
+async def polling_loop(entities):
+    while True:
+        for entity in entities:
+            try:
+                await process_channel(entity)
+            except Exception as e:
+                write_log("ERROR", f"Error processing channel {entity.id}: {e}")
+
+        cleanup_cache()
+        save_cache()
+
+        await asyncio.sleep(CHECK_INTERVAL)
 
 
 # ================= MAIN =================
@@ -285,17 +316,7 @@ async def main():
 
     write_log("INFO", "Polling started")
 
-    while True:
-        for entity in entities:
-            try:
-                await process_channel(entity)
-            except Exception as e:
-                write_log("ERROR", f"Error processing channel {entity.id}: {e}")
-
-        cleanup_cache()
-        save_cache()
-
-        await asyncio.sleep(CHECK_INTERVAL)
+    await polling_loop(entities)
 
 
 if __name__ == "__main__":
