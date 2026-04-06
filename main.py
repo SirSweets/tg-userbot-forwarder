@@ -88,7 +88,11 @@ async def log_message(message, chat):
     chat_name = getattr(chat, "username", None) or getattr(chat, "title", "unknown")
     msg_types = get_message_types(message)
 
-    write_log("INFO", f"[{chat_name}] [{msg_types}]")
+    write_log(
+        "INFO",
+        f"New message detected from entity_id={chat.id} "
+        f"[{chat_name}] [{msg_types}] msg_id={message.id}"
+    )
 
 
 # ================= CACHE =================
@@ -121,16 +125,35 @@ def cleanup_cache():
 # ================= DEDUP =================
 
 def get_message_key(msg):
-    if msg.forward and msg.forward.chat and msg.forward.channel_post:
-        return f"fwd:{msg.forward.chat.id}:{msg.forward.channel_post}"
+    # --- Forward-based dedup (PRIMARY) ---
+    if msg.forward:
+        fwd = msg.forward
 
-    base = ""
+        # Use original source (important for cross-channel forwards)
+        if hasattr(fwd, "from_id") and hasattr(fwd.from_id, "channel_id") and fwd.channel_post:
+            return f"fwd:{fwd.from_id.channel_id}:{fwd.channel_post}"
+
+        # Fallback (older cases)
+        if fwd.chat and fwd.channel_post:
+            return f"fwd:{fwd.chat.id}:{fwd.channel_post}"
+
+    # --- Content-based dedup (FALLBACK) ---
+    parts = []
 
     if msg.text:
-        base += msg.text.strip()
+        parts.append(msg.text.strip())
 
-    if msg.media:
-        base += str(type(msg.media))
+    # Use media IDs
+    if msg.photo:
+        parts.append(f"photo:{msg.photo.id}")
+
+    if msg.video:
+        parts.append(f"video:{msg.video.id}")
+
+    if msg.document:
+        parts.append(f"doc:{msg.document.id}")
+
+    base = "|".join(parts)
 
     return "hash:" + hashlib.sha256(base.encode("utf-8")).hexdigest()
 
@@ -165,12 +188,10 @@ async def process_channel(entity):
             LAST_MESSAGES[entity.id] = msg.id
             continue
 
-        write_log("INFO", f"New message detected from entity_id={entity.id}")
-
         try:
             await log_message(msg, entity)
             await client.forward_messages(CURRENT_TARGET, msg)
-            write_log("INFO", "Message forwarded successfully")
+            write_log("INFO", f"Message msg_id={msg.id} forwarded successfully")
 
             MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
 
@@ -432,7 +453,7 @@ async def main():
                     try:
                         await log_message(msg, entity)
                         await client.forward_messages(CURRENT_TARGET, msg)
-                        write_log("INFO", "Initial message sent")
+                        write_log("INFO", f"Init message msg_id={msg.id} forwarded successfully")
 
                         MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
 
