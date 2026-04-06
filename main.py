@@ -189,13 +189,13 @@ async def process_channel(entity):
 def get_commands_text():
     return (
         "📜 Available commands:\n\n"
-        "commands\n"
+        "help\n"
         "list-sources\n"
         "get-info <input>\n"
         "add-source <input>\n"
         "remove-source <input>\n"
         "set-target <input>\n"
-        "give-log DD-MM-YYYY\n"
+        "get-log DD-MM-YYYY\n"
         "list-logs"
     )
 
@@ -206,10 +206,10 @@ async def handle_commands(event):
         if event.chat_id != TARGET_ID:
             return
 
-        text = event.raw_text.strip()
+        text = event.raw_text.strip().lower()
 
-        # -------- commands --------
-        if text == "commands":
+        # -------- help --------
+        if text == "help":
             await event.reply(get_commands_text())
 
         # -------- list-sources --------
@@ -220,7 +220,7 @@ async def handle_commands(event):
 
             lines = []
             for e in RUNTIME_ENTITIES:
-                lines.append(f"{e.title} | {get_channel_id(e)}")
+                lines.append(f"[{e.title}] & [{get_channel_id(e)}]")
 
             await event.reply("\n".join(lines))
 
@@ -323,12 +323,12 @@ async def handle_commands(event):
             except Exception:
                 await event.reply("❌ Failed to change target")
 
-        # -------- give-log --------
-        elif text.startswith("give-log"):
+        # -------- get-log --------
+        elif text.startswith("get-log"):
             parts = text.split()
 
             if len(parts) < 2:
-                await event.reply("Usage: give-log DD-MM-YYYY")
+                await event.reply("Usage: get-log DD-MM-YYYY")
                 return
 
             date_str = parts[1]
@@ -357,6 +357,11 @@ async def handle_commands(event):
                 return
 
             await event.reply("\n".join(files[-20:]))
+
+
+        # -------- fallback --------
+        else:
+            await event.reply("❓ Unknown command. Use 'help' to see available commands.")
 
     except Exception as e:
         write_log("ERROR", f"Command error: {e}")
