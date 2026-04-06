@@ -35,6 +35,7 @@ SOURCES = [
 TARGET = "your_target_username"
 
 CHECK_INTERVAL = 10
+CACHE_TTL = 86400
 ```
 
 ---
@@ -166,8 +167,11 @@ docker run -d -v $(pwd)/data:/app/data --name userbot --restart=always userbot
 ## 💡 Features
 
 * Polling-based (works without admin rights)
-* Prevents duplicate messages
-* Structured logging
+* No message loss (`min_id` based fetching)
+* Smart deduplication (forward + content hash)
+* Runtime source management (add/remove without restart)
+* Telegram command interface (no SSH required)
+* Structured logging with message types
 * Docker-ready
 
 ---
@@ -186,13 +190,94 @@ docker run -d -v $(pwd)/data:/app/data --name userbot --restart=always userbot
 
 You can control the bot directly from your `TARGET` chat (e.g. your main account).
 
+⚠️ All changes are **runtime-only** and will be reset after bot restart.
+
+---
+
 ### 📜 Available commands:
 
 ```
 commands
-give-log DD-MM-YYYY
+list-sources
+get-info <input>
+add-source <input>
+remove-source <input>
+set-target <input>
+get-log DD-MM-YYYY
 list-logs
 ```
+
+---
+
+### 📂 List sources
+
+```
+list-sources
+```
+
+Shows all currently active sources:
+
+```
+Channel Name | -1001234567890
+```
+
+---
+
+### 🔍 Get info about entity
+
+```
+get-info some_channel
+get-info https://t.me/channel
+get-info -1001234567890
+```
+
+Returns:
+
+```
+[source:input] -> [entity_id:...] [channel_id:...] [type:...] [name:...]
+```
+
+Useful for debugging and getting `channel_id`.
+
+---
+
+### ➕ Add source (runtime)
+
+```
+add-source some_channel
+```
+
+Adds new channel to monitoring without restart.
+
+---
+
+### ➖ Remove source (runtime)
+
+```
+remove-source some_channel
+```
+
+Stops listening to the channel.
+
+---
+
+### 🎯 Change target (runtime)
+
+```
+set-target some_chat
+```
+
+Changes destination where messages are forwarded.
+
+---
+
+### 📄 Get log file
+
+```
+get-log 05-04-2026
+```
+
+Bot will send the requested log file.
 
 ---
 
@@ -202,17 +287,7 @@ list-logs
 list-logs
 ```
 
-Shows last available log files from `data/logs/`.
-
----
-
-### 📄 Get specific log file
-
-```
-give-log 05-04-2026
-```
-
-Bot will send the requested log file.
+Shows available log files.
 
 ---
 
