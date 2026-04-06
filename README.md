@@ -197,7 +197,7 @@ You can control the bot directly from your `TARGET` chat (e.g. your main account
 ### 📜 Available commands:
 
 ```
-commands
+help
 list-sources
 get-info <input>
 add-source <input>
@@ -227,8 +227,7 @@ Channel Name | -1001234567890
 
 ```
 get-info some_channel
-get-info https://t.me/channel
-get-info -1001234567890
+get-info https://t.me/some_channel
 ```
 
 Returns:
@@ -294,7 +293,7 @@ Shows available log files.
 ### ℹ️ Show commands
 
 ```
-commands
+help
 ```
 
 Displays all available commands.
