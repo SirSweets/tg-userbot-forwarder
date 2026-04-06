@@ -19,6 +19,11 @@ LAST_MESSAGES = {}
 MESSAGE_CACHE = {}
 TARGET_ID = None
 
+# runtime state (ephemeral)
+RUNTIME_SOURCES = []
+RUNTIME_ENTITIES = []
+CURRENT_TARGET = None
+
 
 # ================= LOG =================
 
@@ -66,13 +71,10 @@ def get_message_types(message):
 
     if message.text:
         types.append("TEXT")
-
     if message.photo:
         types.append("PICTURE")
-
     if message.video:
         types.append("VIDEO")
-
     if message.document:
         types.append("FILE")
 
@@ -133,6 +135,16 @@ def get_message_key(msg):
     return "hash:" + hashlib.sha256(base.encode("utf-8")).hexdigest()
 
 
+# ================= HELPERS =================
+
+def get_entity_type(entity):
+    if hasattr(entity, "broadcast") and entity.broadcast:
+        return "channel"
+    if hasattr(entity, "megagroup") and entity.megagroup:
+        return "group"
+    return "user"
+
+
 # ================= PROCESS =================
 
 async def process_channel(entity):
@@ -157,7 +169,7 @@ async def process_channel(entity):
 
         try:
             await log_message(msg, entity)
-            await client.forward_messages(TARGET_ID, msg)
+            await client.forward_messages(CURRENT_TARGET, msg)
             write_log("INFO", "Message forwarded successfully")
 
             MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
@@ -178,6 +190,11 @@ def get_commands_text():
     return (
         "📜 Available commands:\n\n"
         "commands\n"
+        "list-sources\n"
+        "get-info <input>\n"
+        "add-source <input>\n"
+        "remove-source <input>\n"
+        "set-target <input>\n"
         "give-log DD-MM-YYYY\n"
         "list-logs"
     )
@@ -189,11 +206,122 @@ async def handle_commands(event):
         if event.chat_id != TARGET_ID:
             return
 
-        text = event.raw_text.strip().lower()
+        text = event.raw_text.strip()
 
         # -------- commands --------
         if text == "commands":
             await event.reply(get_commands_text())
+
+        # -------- list-sources --------
+        elif text == "list-sources":
+            if not RUNTIME_ENTITIES:
+                await event.reply("No sources configured")
+                return
+
+            lines = []
+            for e in RUNTIME_ENTITIES:
+                lines.append(f"{e.title} | {get_channel_id(e)}")
+
+            await event.reply("\n".join(lines))
+
+        # -------- get-info --------
+        elif text.startswith("get-info"):
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                await event.reply("Usage: get-info <input>")
+                return
+
+            source_input = parts[1]
+
+            try:
+                entity = await client.get_entity(source_input)
+                entity_type = get_entity_type(entity)
+
+                if entity_type in ("channel", "group"):
+                    channel_id = get_channel_id(entity)
+                    response = (
+                        f"[source:{source_input}] -> "
+                        f"[entity_id:{entity.id}] "
+                        f"[channel_id:{channel_id}] "
+                        f"[type:{entity_type}] "
+                        f"[name:{entity.title}]"
+                    )
+                else:
+                    response = (
+                        f"[source:{source_input}] -> "
+                        f"[entity_id:{entity.id}] "
+                        f"[type:{entity_type}] "
+                        f"[name:{getattr(entity, 'first_name', 'unknown')}]"
+                    )
+
+                await event.reply(response)
+
+            except Exception:
+                await event.reply(f"❌ Failed to resolve: {source_input}")
+
+        # -------- add-source --------
+        elif text.startswith("add-source"):
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                await event.reply("Usage: add-source <input>")
+                return
+
+            source_input = parts[1]
+
+            try:
+                entity = await client.get_entity(source_input)
+
+                if entity.id in [e.id for e in RUNTIME_ENTITIES]:
+                    await event.reply("Already exists")
+                    return
+
+                RUNTIME_ENTITIES.append(entity)
+                RUNTIME_SOURCES.append(source_input)
+
+                await event.reply(f"Added: {entity.title}")
+
+            except Exception:
+                await event.reply("❌ Failed to add source")
+
+        # -------- remove-source --------
+        elif text.startswith("remove-source"):
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                await event.reply("Usage: remove-source <input>")
+                return
+
+            source_input = parts[1]
+
+            try:
+                entity = await client.get_entity(source_input)
+
+                RUNTIME_ENTITIES[:] = [e for e in RUNTIME_ENTITIES if e.id != entity.id]
+                LAST_MESSAGES.pop(entity.id, None)
+
+                await event.reply(f"Removed: {entity.title}")
+
+            except Exception:
+                await event.reply("❌ Failed to remove source")
+
+        # -------- set-target --------
+        elif text.startswith("set-target"):
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                await event.reply("Usage: set-target <input>")
+                return
+
+            target_input = parts[1]
+
+            try:
+                entity = await client.get_entity(target_input)
+
+                global CURRENT_TARGET
+                CURRENT_TARGET = entity.id
+
+                await event.reply(f"Target changed to: {getattr(entity, 'title', 'user')}")
+
+            except Exception:
+                await event.reply("❌ Failed to change target")
 
         # -------- give-log --------
         elif text.startswith("give-log"):
@@ -228,8 +356,7 @@ async def handle_commands(event):
                 await event.reply("No logs available")
                 return
 
-            logs = "\n".join(files[-20:])
-            await event.reply(f"📂 Available logs:\n\n{logs}")
+            await event.reply("\n".join(files[-20:]))
 
     except Exception as e:
         write_log("ERROR", f"Command error: {e}")
@@ -237,9 +364,9 @@ async def handle_commands(event):
 
 # ================= POLLING =================
 
-async def polling_loop(entities):
+async def polling_loop():
     while True:
-        for entity in entities:
+        for entity in list(RUNTIME_ENTITIES):
             try:
                 await process_channel(entity)
             except Exception as e:
@@ -269,14 +396,15 @@ async def main():
 
     await client.start()
 
-    global TARGET_ID
+    global TARGET_ID, CURRENT_TARGET
+
     target_entity = await client.get_entity(TARGET)
     TARGET_ID = target_entity.id
+    CURRENT_TARGET = TARGET_ID
 
     write_log("INFO", f"Resolved TARGET_ID: {TARGET_ID}")
 
-    entities = []
-
+    # Load initial sources into runtime
     for source in SOURCES:
         try:
             entity = await client.get_entity(source)
@@ -298,7 +426,7 @@ async def main():
                 if key not in MESSAGE_CACHE:
                     try:
                         await log_message(msg, entity)
-                        await client.forward_messages(TARGET_ID, msg)
+                        await client.forward_messages(CURRENT_TARGET, msg)
                         write_log("INFO", "Initial message sent")
 
                         MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
@@ -308,7 +436,9 @@ async def main():
 
                 LAST_MESSAGES[entity.id] = msg.id
 
-            entities.append(entity)
+            RUNTIME_ENTITIES.append(entity)
+            RUNTIME_SOURCES.append(source)
+
             log_separator()
 
         except Exception as e:
@@ -316,7 +446,7 @@ async def main():
 
     write_log("INFO", "Polling started")
 
-    await polling_loop(entities)
+    await polling_loop()
 
 
 if __name__ == "__main__":
