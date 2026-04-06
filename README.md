@@ -218,7 +218,7 @@ list-sources
 Shows all currently active sources:
 
 ```
-Channel Name | -1001234567890
+[Channel Name] & [-1001234567890]
 ```
 
 ---
