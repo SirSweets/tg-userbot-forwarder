@@ -124,38 +124,20 @@ def cleanup_cache():
 
 # ================= DEDUP =================
 
-def get_message_key(msg):
-    # --- Forward-based dedup (PRIMARY) ---
-    if msg.forward:
-        fwd = msg.forward
+async def get_message_key(msg):
+    if msg.forward and msg.forward.channel_post:
+        write_log("DEBUG", f"DEDUP TYPE=forward channel_post={msg.forward.channel_post}")
+        return f"origin:{msg.forward.channel_post}"
 
-        # Use original source (important for cross-channel forwards)
-        if hasattr(fwd, "from_id") and hasattr(fwd.from_id, "channel_id") and fwd.channel_post:
-            return f"fwd:{fwd.from_id.channel_id}:{fwd.channel_post}"
-
-        # Fallback (older cases)
-        if fwd.chat and fwd.channel_post:
-            return f"fwd:{fwd.chat.id}:{fwd.channel_post}"
-
-    # --- Content-based dedup (FALLBACK) ---
-    parts = []
-
-    if msg.text:
-        parts.append(msg.text.strip())
-
-    # Use media IDs
     if msg.photo:
-        parts.append(f"photo:{msg.photo.id}")
+        file = await client.download_media(msg.photo, bytes)
+        file_hash = hashlib.sha256(file).hexdigest()
+        del file
 
-    if msg.video:
-        parts.append(f"video:{msg.video.id}")
+        write_log("DEBUG", f"DEDUP TYPE=photo hash={file_hash[:8]}...")
+        return f"photo:{file_hash}"
 
-    if msg.document:
-        parts.append(f"doc:{msg.document.id}")
-
-    base = "|".join(parts)
-
-    return "hash:" + hashlib.sha256(base.encode("utf-8")).hexdigest()
+    return f"msg:{msg.chat_id}:{msg.id}"
 
 
 # ================= HELPERS =================
@@ -181,17 +163,18 @@ async def process_channel(entity):
     messages = list(reversed(messages))
 
     for msg in messages:
-        key = get_message_key(msg)
+        key = await get_message_key(msg)
 
+        write_log("DEBUG", f"Processing msg_id={msg.id} chat_id={entity.id} key={key}")
         if key in MESSAGE_CACHE:
-            write_log("INFO", f"Duplicate skipped (msg_id={msg.id})")
+            write_log("INFO", f"Duplicate skipped (msg_id={msg.id}) (key={key})")
             LAST_MESSAGES[entity.id] = msg.id
             continue
 
         try:
             await log_message(msg, entity)
             await client.forward_messages(CURRENT_TARGET, msg)
-            write_log("INFO", f"Message msg_id={msg.id} forwarded successfully")
+            write_log("INFO", f"Message msg_id={msg.id} key={key} forwarded successfully")
 
             MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
 
@@ -447,13 +430,13 @@ async def main():
             if last_msg:
                 msg = last_msg[0]
 
-                key = get_message_key(msg)
+                key = await get_message_key(msg)
 
                 if key not in MESSAGE_CACHE:
                     try:
                         await log_message(msg, entity)
                         await client.forward_messages(CURRENT_TARGET, msg)
-                        write_log("INFO", f"Init message msg_id={msg.id} forwarded successfully")
+                        write_log("INFO", f"Init message msg_id={msg.id} key={key} forwarded successfully")
 
                         MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
 
