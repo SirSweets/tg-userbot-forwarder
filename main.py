@@ -125,9 +125,16 @@ def cleanup_cache():
 # ================= DEDUP =================
 
 async def get_message_key(msg):
+    parts = []
+
     if msg.forward and msg.forward.channel_post:
-        write_log("DEBUG", f"DEDUP TYPE=forward channel_post={msg.forward.channel_post}")
-        return f"origin:{msg.forward.channel_post}"
+        post_id = msg.forward.channel_post
+        write_log("DEBUG", f"DEDUP TYPE=forward post_id={post_id}")
+    else:
+        post_id = msg.id
+        write_log("DEBUG", f"DEDUP TYPE=original post_id={post_id}")
+
+    parts.append(f"post:{post_id}")
 
     if msg.photo:
         file = await client.download_media(msg.photo, bytes)
@@ -135,9 +142,26 @@ async def get_message_key(msg):
         del file
 
         write_log("DEBUG", f"DEDUP TYPE=photo hash={file_hash[:8]}...")
-        return f"photo:{file_hash}"
+        parts.append(f"photo:{file_hash}")
 
-    return f"msg:{msg.chat_id}:{msg.id}"
+    return "|".join(parts)
+
+def is_duplicate(key):
+    parts = key.split("|")
+
+    for part in parts:
+        if part in MESSAGE_CACHE:
+            return True
+
+    return False
+
+def save_keys(key):
+    parts = key.split("|")
+
+    ts = datetime.utcnow().timestamp()
+
+    for part in parts:
+        MESSAGE_CACHE[part] = ts
 
 
 # ================= HELPERS =================
@@ -166,8 +190,8 @@ async def process_channel(entity):
         key = await get_message_key(msg)
 
         write_log("DEBUG", f"Processing msg_id={msg.id} chat_id={entity.id} key={key}")
-        if key in MESSAGE_CACHE:
-            write_log("INFO", f"Duplicate skipped (msg_id={msg.id}) (key={key})")
+        if is_duplicate(key):
+            write_log("INFO", f"Duplicate skipped msg_id={msg.id} key={key}")
             LAST_MESSAGES[entity.id] = msg.id
             continue
 
@@ -176,7 +200,7 @@ async def process_channel(entity):
             await client.forward_messages(CURRENT_TARGET, msg)
             write_log("INFO", f"Message msg_id={msg.id} key={key} forwarded successfully")
 
-            MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
+            save_keys(key)
 
         except FloodWaitError as e:
             write_log("ERROR", f"FloodWait {e.seconds}s")
@@ -432,13 +456,13 @@ async def main():
 
                 key = await get_message_key(msg)
 
-                if key not in MESSAGE_CACHE:
+                if not is_duplicate(key):
                     try:
                         await log_message(msg, entity)
                         await client.forward_messages(CURRENT_TARGET, msg)
                         write_log("INFO", f"Init message msg_id={msg.id} key={key} forwarded successfully")
 
-                        MESSAGE_CACHE[key] = datetime.utcnow().timestamp()
+                        save_keys(key)
 
                     except Exception as e:
                         write_log("ERROR", str(e))
