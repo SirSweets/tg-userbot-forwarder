@@ -173,6 +173,32 @@ def get_entity_type(entity):
         return "group"
     return "user"
 
+# ================= HANDLE =================
+
+async def handle_message(msg, entity):
+    key = await get_message_key(msg)
+
+    if is_duplicate(key):
+        write_log("INFO", f"Duplicate skipped msg_id={msg.id} key={key}")
+        return False
+
+    try:
+        await log_message(msg, entity)
+        await client.forward_messages(CURRENT_TARGET, msg)
+
+        write_log("INFO", f"Message msg_id={msg.id} key={key} forwarded successfully")
+
+        save_keys(key)
+        return True
+
+    except FloodWaitError as e:
+        write_log("ERROR", f"FloodWait {e.seconds}s msg_id={msg.id} key={key}")
+        await asyncio.sleep(e.seconds)
+
+    except Exception as e:
+        write_log("ERROR", f"Failed to forward msg_id={msg.id} key={key}: {e}")
+
+    return False
 
 # ================= PROCESS =================
 
@@ -187,28 +213,7 @@ async def process_channel(entity):
     messages = list(reversed(messages))
 
     for msg in messages:
-        key = await get_message_key(msg)
-
-        write_log("DEBUG", f"Processing msg_id={msg.id} chat_id={entity.id} key={key}")
-        if is_duplicate(key):
-            write_log("INFO", f"Duplicate skipped msg_id={msg.id} key={key}")
-            LAST_MESSAGES[entity.id] = msg.id
-            continue
-
-        try:
-            await log_message(msg, entity)
-            await client.forward_messages(CURRENT_TARGET, msg)
-            write_log("INFO", f"Message msg_id={msg.id} key={key} forwarded successfully")
-
-            save_keys(key)
-
-        except FloodWaitError as e:
-            write_log("ERROR", f"FloodWait {e.seconds}s")
-            await asyncio.sleep(e.seconds)
-
-        except Exception as e:
-            write_log("ERROR", f"Failed to forward message: {e}")
-
+        await handle_message(msg, entity)
         LAST_MESSAGES[entity.id] = msg.id
 
 
@@ -444,29 +449,14 @@ async def main():
 
             channel_id = get_channel_id(entity)
 
-            write_log(
-                "INFO",
-                f"[source:{source}] -> [entity_id:{entity.id}] [channel_id:{channel_id}] [name:{entity.title}]"
-            )
+            write_log("INFO", f"[source:{source}] -> [entity_id:{entity.id}] [channel_id:{channel_id}] [name:{entity.title}]")
 
             last_msg = await client.get_messages(entity, limit=1)
 
             if last_msg:
                 msg = last_msg[0]
 
-                key = await get_message_key(msg)
-
-                if not is_duplicate(key):
-                    try:
-                        await log_message(msg, entity)
-                        await client.forward_messages(CURRENT_TARGET, msg)
-                        write_log("INFO", f"Init message msg_id={msg.id} key={key} forwarded successfully")
-
-                        save_keys(key)
-
-                    except Exception as e:
-                        write_log("ERROR", str(e))
-
+                await handle_message(msg, entity)
                 LAST_MESSAGES[entity.id] = msg.id
 
             RUNTIME_ENTITIES.append(entity)
