@@ -326,14 +326,23 @@ async def handle_commands(event):
             source_input = parts[1]
 
             try:
-                entity = await client.get_entity(source_input)
+                removed = None
 
-                RUNTIME_ENTITIES[:] = [e for e in RUNTIME_ENTITIES if e.id != entity.id]
-                LAST_MESSAGES.pop(entity.id, None)
+                for e in RUNTIME_ENTITIES:
+                    if str(e.id) == source_input or str(get_channel_id(e)) == source_input:
+                        removed = e
+                        break
 
-                await event.reply(f"Removed: {entity.title}")
+                if not removed:
+                    await event.reply("❌ Source not found")
+                    return
 
-            except Exception:
+                RUNTIME_ENTITIES[:] = [e for e in RUNTIME_ENTITIES if e.id != removed.id]
+                LAST_MESSAGES.pop(removed.id, None)
+
+                await event.reply(f"Removed: {removed.title}")
+
+            except Exception as e:
                 await event.reply("❌ Failed to remove source")
 
         # -------- set-target --------
