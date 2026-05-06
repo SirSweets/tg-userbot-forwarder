@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import hashlib
+from telethon.tl.types import PeerChannel
 from datetime import datetime, timedelta
 
 from telethon import TelegramClient, events
@@ -302,19 +303,30 @@ async def handle_commands(event):
             source_input = parts[1]
 
             try:
+                if source_input.lstrip("-").isdigit():
+                    raw_id = int(source_input)
+
+                    if str(raw_id).startswith("-100"):
+                        channel_id = int(str(raw_id)[4:])
+                    else:
+                        channel_id = raw_id
+
+                    entity = await client.get_entity(PeerChannel(channel_id))
+
+            else:
                 entity = await client.get_entity(source_input)
 
-                if entity.id in [e.id for e in RUNTIME_ENTITIES]:
-                    await event.reply("Already exists")
-                    return
+            if entity.id in [e.id for e in RUNTIME_ENTITIES]:
+                await event.reply("Already exists")
+                return
 
-                RUNTIME_ENTITIES.append(entity)
-                RUNTIME_SOURCES.append(source_input)
+            RUNTIME_ENTITIES.append(entity)
+            RUNTIME_SOURCES.append(source_input)
 
-                await event.reply(f"Added: {entity.title}")
+            await event.reply(f"Added: {entity.title}")
 
-            except Exception:
-                await event.reply("❌ Failed to add source")
+        except Exception as e:
+            await event.reply(f"❌ Failed to add source: {e}")
 
         # -------- remove-source --------
         elif text.startswith("remove-source"):
