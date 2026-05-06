@@ -313,20 +313,20 @@ async def handle_commands(event):
 
                     entity = await client.get_entity(PeerChannel(channel_id))
 
-            else:
-                entity = await client.get_entity(source_input)
+                else:
+                    entity = await client.get_entity(source_input)
 
-            if entity.id in [e.id for e in RUNTIME_ENTITIES]:
-                await event.reply("Already exists")
-                return
+                if entity.id in [e.id for e in RUNTIME_ENTITIES]:
+                    await event.reply("Already exists")
+                    return
 
-            RUNTIME_ENTITIES.append(entity)
-            RUNTIME_SOURCES.append(source_input)
+                RUNTIME_ENTITIES.append(entity)
+                RUNTIME_SOURCES.append(source_input)
 
-            await event.reply(f"Added: {entity.title}")
+                await event.reply(f"Added: {entity.title}")
 
-        except Exception as e:
-            await event.reply(f"❌ Failed to add source: {e}")
+            except Exception as e:
+                await event.reply(f"❌ Failed to add source: {e}")
 
         # -------- remove-source --------
         elif text.startswith("remove-source"):
