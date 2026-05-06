@@ -420,6 +420,7 @@ async def polling_loop():
                 write_log("ERROR", f"Error processing channel {entity.id}: {e}")
 
         cleanup_cache()
+        cleanup_old_logs()
         save_cache()
 
         await asyncio.sleep(CHECK_INTERVAL)
